@@ -19,9 +19,7 @@
   },
   "homepage": "https://github.com/DD-LK/screen_share#readme",
   "dependencies": {
-    "bonjour": "^3.5.0",
     "electron": "^37.2.3",
-    "electron-webrtc": "^0.3.0",
     "ws": "^8.18.3"
   }
 }

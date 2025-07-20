@@ -7,27 +7,19 @@
       margin: 0;
       overflow: hidden;
     }
-    video {
+    img {
       width: 100vw;
       height: 100vh;
     }
   </style>
 </head>
 <body>
-  <video autoplay playsinline></video>
+  <img id="screen" />
   <script>
-    window.electron.onStream((url) => {
-      const video = document.querySelector('video');
-      navigator.mediaDevices.getUserMedia({
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: url.split(':')[1]
-          }
-        }
-      }).then((stream) => {
-        video.srcObject = stream;
-      });
+    const { ipcRenderer } = require('electron');
+    ipcRenderer.on('image', (event, data) => {
+      const img = document.getElementById('screen');
+      img.src = 'data:image/jpeg;base64,' + data;
     });
   </script>
 </body>

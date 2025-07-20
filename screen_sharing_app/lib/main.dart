@@ -1,8 +1,12 @@
-import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:web_socket_channel/io.dart';
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:image/image.dart' as img;
+import 'package:permission_handler/permission_handler.dart';
+import 'package:web_socket_channel/io.dart';
 
 void main() {
   runApp(MyApp());
@@ -23,105 +27,44 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  bool _isSharing = false;
-  RTCPeerConnection? _peerConnection;
-  final _localRenderer = RTCVideoRenderer();
   final _serverIpController = TextEditingController();
   IOWebSocketChannel? _channel;
-
-  @override
-  void initState() {
-    super.initState();
-    _localRenderer.initialize();
-  }
-
-  @override
-  void dispose() {
-    _localRenderer.dispose();
-    super.dispose();
-  }
+  bool _isSharing = false;
+  GlobalKey _globalKey = GlobalKey();
+  Timer? _timer;
 
   Future<void> _startSharing() async {
     if (await _requestPermissions()) {
-      final mediaConstraints = <String, dynamic>{
-        'audio': false,
-        'video': {
-          'mandatory': {
-            'minWidth': '1280',
-            'minHeight': '720',
-            'minFrameRate': '30',
-          },
-          'facingMode': 'user',
-          'optional': [],
-        }
-      };
-
-      try {
-        var stream = await navigator.mediaDevices.getDisplayMedia(mediaConstraints);
-        _localRenderer.srcObject = stream;
-
-        _peerConnection = await createPeerConnection({
-          'iceServers': [
-            {'urls': 'stun:stun.l.google.com:19302'},
-          ]
-        }, {});
-
-        stream.getTracks().forEach((track) {
-          _peerConnection?.addTrack(track, stream);
-        });
-
-        _channel = IOWebSocketChannel.connect('ws://${_serverIpController.text}:8080');
-
-        _peerConnection?.onIceCandidate = (candidate) {
-          if (candidate != null) {
-            _channel?.sink.add(jsonEncode({
-              'type': 'candidate',
-              'candidate': candidate.toMap(),
-            }));
-          }
-        };
-
-        var offer = await _peerConnection?.createOffer({});
-        await _peerConnection?.setLocalDescription(offer!);
-        _channel?.sink.add(jsonEncode(offer?.toMap()));
-
-        _channel?.stream.listen((message) {
-          final data = jsonDecode(message);
-          if (data['type'] == 'answer') {
-            _peerConnection?.setRemoteDescription(
-              RTCSessionDescription(data['sdp'], data['type']),
-            );
-          } else if (data['type'] == 'candidate') {
-            _peerConnection?.addIceCandidate(
-              RTCIceCandidate(
-                data['candidate']['candidate'],
-                data['candidate']['sdpMid'],
-                data['candidate']['sdpMLineIndex'],
-              ),
-            );
-          }
-        });
-
-        setState(() {
-          _isSharing = true;
-        });
-      } catch (e) {
-        print(e.toString());
-      }
+      _channel = IOWebSocketChannel.connect('ws://${_serverIpController.text}:8080');
+      setState(() {
+        _isSharing = true;
+      });
+      _timer = Timer.periodic(Duration(milliseconds: 100), (timer) {
+        _captureAndSend();
+      });
     }
   }
 
   void _stopSharing() {
+    _timer?.cancel();
+    _channel?.sink.close();
+    setState(() {
+      _isSharing = false;
+    });
+  }
+
+  Future<void> _captureAndSend() async {
     try {
-      _channel?.sink.close();
-      _peerConnection?.close();
-      _peerConnection = null;
-      _localRenderer.srcObject = null;
-      setState(() {
-        _isSharing = false;
-      });
+      RenderRepaintBoundary boundary =
+          _globalKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      ui.Image image = await boundary.toImage(pixelRatio: 1.0);
+      ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      Uint8List pngBytes = byteData!.buffer.asUint8List();
+      img.Image? decodedImage = img.decodeImage(pngBytes);
+      List<int> jpegBytes = img.encodeJpg(decodedImage!);
+      _channel?.sink.add(base64Encode(jpegBytes));
     } catch (e) {
-      print(e.toString());
+      print(e);
     }
   }
 
@@ -133,44 +76,38 @@ class _MyHomePageState extends State<MyHomePage> {
         return false;
       }
     }
-    status = await Permission.systemAlertWindow.status;
-    if (!status.isGranted) {
-      status = await Permission.systemAlertWindow.request();
-      if (!status.isGranted) {
-        return false;
-      }
-    }
     return true;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Screen Sharing'),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            if (_isSharing)
-              Expanded(child: RTCVideoView(_localRenderer))
-            else
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: TextField(
-                  controller: _serverIpController,
-                  decoration: InputDecoration(
-                    labelText: 'Server IP Address',
+    return RepaintBoundary(
+      key: _globalKey,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('Screen Sharing'),
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              if (!_isSharing)
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: TextField(
+                    controller: _serverIpController,
+                    decoration: InputDecoration(
+                      labelText: 'Server IP Address',
+                    ),
                   ),
                 ),
+              SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _isSharing ? _stopSharing : _startSharing,
+                child: Text(_isSharing ? 'Stop Sharing' : 'Start Sharing'),
               ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _isSharing ? _stopSharing : _startSharing,
-              child: Text(_isSharing ? 'Stop Sharing' : 'Start Sharing'),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

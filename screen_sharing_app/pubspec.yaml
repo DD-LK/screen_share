@@ -1,7 +1,7 @@
 name: screen_sharing_app
 description: A new Flutter project.
 
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: 'none'
 
 version: 1.0.0+1
 
@@ -11,13 +11,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_webrtc: ^0.9.22
-  permission_handler: ^10.2.0
-  network_info_plus: ^4.0.1
-  bonjour: ^1.2.1
-  flutter_background_service: ^2.4.6
   web_socket_channel: ^2.2.0
-
+  image: ^3.0.2
+  permission_handler: ^10.2.0
 
 dev_dependencies:
   flutter_test:
